@@ -68,13 +68,11 @@ class Parcer:
         self.report_folder = report_folder
 
 
-
     def export_raw_file(self, exif_columns):
         find = f'exiftool -r {exif_columns} -T -n {self.photos_folder} > {self.photos_folder}out.txt'
         subprocess.run(find, shell=True, capture_output=True, text=True)
  
 
-        
     def read_file(self, tab_columns):     
         w_tab = pd.read_csv((f'{self.photos_folder}out.txt'), sep = '\t', names = tab_columns)
         os.remove(f'{self.photos_folder}out.txt')                                                    
@@ -87,12 +85,11 @@ class Parcer:
 
         df.loc[df['dewarping'] == '-', 'dewarping'] = 'on'
         df.loc[df['dewarping'] != 'on', 'dewarping'] = 'off'
-
-
+        
         df.loc[df['ntrip'] == '-', 'ntrip'] = 'local base'
-        df.loc[df['mount_point'] == '-', 'mount_point'] = 'None'
+        df.loc[df['mount_point'] == '-', 'mount_point'] = 'none'
 
-        df.to_excel(f'{self.report_folder}\\report.xlsx', sheet_name='Sheet1', index = False)
+        df.to_excel(f'{self.report_folder}\\exif_report.xlsx', sheet_name='Sheet1', index = False)
 
         df['create_date'] = df['create_date'].apply(lambda x: x[0:10])
 
@@ -127,8 +124,6 @@ class Parcer:
                 if int(q) == k:
                     self.metering_name = str(v)
 
-
-
     def std_report_show(self, column_name):
         self.df[column_name] = pd.to_numeric(self.df[column_name], errors='coerce')
         column = self.df[column_name]
@@ -143,9 +138,8 @@ class Parcer:
          
         troubles = [i for i in self.exposure_values if i < 600]
         if len(troubles) > 3:
-            print(f'\nshutter values are critical minimal {sorted(troubles)} possibility BLUR - NO FOCUS \nneed to use' 
-                f'shutter speed priority mode with (1\\1000) value\n')
-
+            print(f'\nshutter values are critical minimal {sorted(troubles)} possibility BLUR - NO FOCUS \n' 
+                f'need to use shutter speed priority mode with (1\\1000) value\n')
         
         for i in sorted(self.exposure_values):
             number = self.exposure_values_lst.count(i)
@@ -159,6 +153,25 @@ class Parcer:
             pct2 = str(round(int(number_flag)/int(len(self.rtk_values_lst))*100,1))
             print(f'{i} value rtk flag - {number_flag} photos, {pct2}%')
 
+        is_rtk_flag = self.df['flag'].eq('-').all()
+        is_rtk_flag2 = self.df['flag'].eq('0').all()
+        is_rtk_flag3 = self.df['flag'].eq('50').all()
+
+        if is_rtk_flag == True:
+            print('\nThis is not RTK flight, but it could be a PPK flight')
+        if is_rtk_flag2 == True:
+            print('\nThis is not a RTK flight')
+        if is_rtk_flag3 == True:
+            print('\nThis is a good RTK flight with high accuracy')
+            self.df.to_csv(f'{self.report_folder}\\scan.photo.georef.txt', sep='\t', columns=["photo", "lon", "lat", "height"], index=False)
+        
+        unique_count = self.df['flag'].nunique()
+        if unique_count > 1:
+            self.df.loc[self.df['flag'] == '50', 'accuracy'] = 0.05
+            self.df.loc[self.df['flag'] != '50', 'accuracy'] = 0.30
+            print(f'\nprepared file {self.report_folder}\\scan.photo.georef.txt\nwith field accuracy for each photo')
+            self.df.to_csv(f'{self.report_folder}\\scan.photo.georef.txt', sep='\t', columns=["photo", "lon", "lat", "height", 'accuracy'], index=False) 
+
         print('\n_________________\n')
 
         is_rtk = self.df['std_lon'].ne('-').all()
@@ -168,13 +181,15 @@ class Parcer:
             self.std_report_show('std_hgt')
             print('_________________\n')
 
-        print(f'\nThe detailed information can be found in the XLSX file here:\n{self.report_folder}\\out.xlsx\n')
+        if len(self.dewarping_values) > 1:
+            print(f'WARNING! Within the flight, dewarping mode on\\off\n' 
+                  f're-alignment with groups will be required in Metashape')
 
-    def message(self):
-        pass
+        if len(self.drone_values) > 1:
+            print(f'WARNING! {len(self.drone_values)} drones were used during the capture.\n' 
+                  f'Please be aware, chunks processing may be required in Metashape')
 
-    def export(self):
-        pass
+        print(f'\nThe detailed information can be found in the XLSX file here:\n{self.report_folder}\\exif_report.xlsx\n')
 
 
 
@@ -189,17 +204,14 @@ print("""
 """)
 
 
-while True:
-    u_input = input(r'folder ("c:\traceairroot\account\project\YYYY-MM-DD"): ')
-    photos_folder = os.path.join(os.path.normpath(u_input), 'input', 'scan\\')
-    report_folder = os.path.normpath(u_input)
-    try:
-        task = Parcer(photos_folder, report_folder)
-        task.export_raw_file(exif_columns)
-        task.read_file(tab_columns)
-        task.view_report()
-        print('\nnext folder...\n')
-    except FileNotFoundError:
-        print('\nwrong path, try again\n')
-        continue
+
+u_input = input(r'folder with photos: ')
+photos_folder = os.path.join(os.path.normpath(u_input))
+report_folder = os.path.normpath(u_input)
+
+task = Parcer(photos_folder, report_folder)
+task.export_raw_file(exif_columns)
+task.read_file(tab_columns)
+task.view_report()
+
 
