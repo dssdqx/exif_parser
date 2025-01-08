@@ -1,2 +1,6 @@
 Check EXIF Settings for UAV (Exposure Settings and Geodetic Accuracy)
-![exif_parser_pic](https://github.com/user-attachments/assets/6f20b4ed-8e21-4053-9eb4-65526a03c2b3)
+
+![pic](https://github.com/user-attachments/assets/417cb332-0251-4134-9818-2f66cbb6127a)
+
+
+
