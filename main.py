@@ -1,6 +1,7 @@
 import subprocess
 import pandas as pd
 import os
+from gsd import calculate_gsd, camera_specs
 
 ExposureProgram_dict = {0: 'Not_Defined', 1: 'Manual', 2: 'Program_AE', 3: 'Aperture-priority_AE', 4: 'Shutter_speed_priority_AE',
                         5: 'Creative_(Slow speed)', 6: 'Action_(High speed)', 7: 'Portrait',
@@ -30,7 +31,11 @@ exif_tags = [
     "-RtkStdLon",
     "-RtkStdLat",
     "-RtkStdHgt",
-    "-DroneSerialNumber"
+    "-DroneSerialNumber",
+    "-GPSXYAccuracy",
+    "-GPSZAccuracy",
+    "-FocusDistance",
+    "-RelativeAltitude"
 ]
 
 
@@ -56,32 +61,40 @@ tab_columns = [
     "std_lon",
     "std_lat",
     "std_hgt",
-    "drone_SN"
+    "drone_SN",
+    "autel_accuracy_xy",
+    "autel_accuracy_z",
+    "focus_distance",
+    "height_relative"
 ]
 
 exif_columns = " ".join(exif_tags)
 
-class Parcer:
+class Parser:
 
     def __init__(self, photos_folder, report_folder):
         self.photos_folder = photos_folder
         self.report_folder = report_folder
+        self.file_export_name = 'exif_report'
+
+        #tmp = self.report_folder.split("\\")
+        #self.file_export_name = tmp[-2] +  tmp[-1][8:] + tmp[-1][5:7] # baseline1412 ddmm
 
 
     def export_raw_file(self, exif_columns):
-        find = f'exiftool -r {exif_columns} -T -n {self.photos_folder} > {self.photos_folder}out.txt'
+        find = f'exiftool -r {exif_columns} -T -n {self.photos_folder} > {self.photos_folder}\\out.txt'
         subprocess.run(find, shell=True, capture_output=True, text=True)
  
 
     def read_file(self, tab_columns):     
-        w_tab = pd.read_csv((f'{self.photos_folder}out.txt'), sep = '\t', names = tab_columns)
-        os.remove(f'{self.photos_folder}out.txt')                                                    
+        w_tab = pd.read_csv((f'{self.photos_folder}\\out.txt'), sep = '\t', names = tab_columns)
+        os.remove(f'{self.photos_folder}\\out.txt')                                                    
         df = pd.DataFrame(w_tab)
         df = df.query("Exposure != '-' ")
-        
         df = df.copy()
 
         df['Exposure'] = df['Exposure'].apply(lambda x: int(1 / float(x)))
+        df['iso'] = df['iso'].apply(lambda x: int(x))
 
         df.loc[df['dewarping'] == '-', 'dewarping'] = 'on'
         df.loc[df['dewarping'] != 'on', 'dewarping'] = 'off'
@@ -89,11 +102,29 @@ class Parcer:
         df.loc[df['ntrip'] == '-', 'ntrip'] = 'local base'
         df.loc[df['mount_point'] == '-', 'mount_point'] = 'none'
 
-        df.to_excel(f'{self.report_folder}\\exif_report.xlsx', sheet_name='Sheet1', index = False)
+        self.model_values = set(df['model'])
+
+        if df['height_relative'].ne('-').all():
+            df["height_relative"] = df["height_relative"].astype(float)
+        
+        if len(self.model_values) == 1:
+            self.model_value = list(self.model_values)[0]
+             
+            if self.model_value in camera_specs:
+                average_height = round(df['height_relative'].mean(), 2)
+                calculate_gsd(average_height, self.model_value)
+        
+        df = df.drop(columns=['height_relative'])
+
+        if self.model_value != 'XL705':
+            df = df.drop(columns=['autel_accuracy_xy'])
+            df = df.drop(columns=['autel_accuracy_z'])
+
+        df.to_excel(f'{self.report_folder}\\{self.file_export_name}.xlsx', sheet_name='Sheet1', index = False)
 
         df['create_date'] = df['create_date'].apply(lambda x: x[0:10])
+        df['Aperture'] = df['Aperture'].apply(lambda x: round(float(x),2)) 
 
-        self.model_values = set(df['model'])
         self.image_size_values = set(df['image_size'])
         self.date_values = set(df['create_date'])
         self.exposure_values = set(df['Exposure'])
@@ -108,16 +139,22 @@ class Parcer:
         self.mount_point_values = set(df['mount_point'])
         self.zoom_values = set(df['zoom_ratio'])
         self.drone_values = set(df['drone_SN'])
+        self.focus_distance = set(df['focus_distance'])
 
         self.exposure_values_lst = list(df['Exposure'])
         self.rtk_values_lst = list(df['flag'])
 
         self.df = df
 
+        self.df['program'] = self.df['program'].astype(int)
+        self.program_name = []
         for q in self.program_values:
             for k, v in ExposureProgram_dict.items():
                 if int(q) == k:
-                    self.program_name = str(v)
+                    self.program_name.append(v)
+                    self.df.loc[self.df['program'] == k, 'program_name'] = v
+        
+        self.program_value_lst = list(df['program_name'])
 
         for q in self.mode_values:
             for k, v in MeteringMode_dict.items():
@@ -132,7 +169,7 @@ class Parcer:
     def view_report(self):
         print(f'\ncamera model: {self.model_values}\nimage size: {self.image_size_values}\nflight date(yyyy-mm-dd): {self.date_values}\n'
                f'photos: {len(self.df)}\n\naperture: {sorted(self.aperture_values)}\nshutter: {sorted(self.exposure_values)}\niso: {sorted(self.iso_values)}\n'
-               f'program: {self.program_name}\ndrone SN: {self.drone_values}\nshutter: {self.shutter_values}\nmode: {self.metering_name}\nzoom ratio mode: { self.zoom_values}\n'
+               f'program: {self.program_name}\ndrone SN: {self.drone_values}\nshutter: {self.shutter_values}\nmode: {self.metering_name}\nzoom ratio mode: { self.zoom_values}\nfocus distance: {sorted(self.focus_distance)}\n'
                f'dewarping: {self.dewarping_values}\nrtk: {sorted(self.rtk_values)}\nRTK correction from: {sorted(self.ntrip_values)}\n'
                f'Mount point: {sorted(self.mount_point_values)}\n')
          
@@ -157,14 +194,24 @@ class Parcer:
         is_rtk_flag2 = self.df['flag'].eq('0').all()
         is_rtk_flag3 = self.df['flag'].eq('50').all()
 
-        if is_rtk_flag == True:
-            print('\nThis is not RTK flight, but it could be a PPK flight')
-        if is_rtk_flag2 == True:
-            print('\nThis is not a RTK flight')
+        if is_rtk_flag == True and self.model_value != 'XL705':
+            print('\nthis is not RTK flight, but it could be a PPK flight')
+        if is_rtk_flag2 == True and self.model_value != 'XL705':
+            print('\nthis is not a RTK flight')
         if is_rtk_flag3 == True:
-            print('\nThis is a good RTK flight with high accuracy')
+            print('\nthis is a good RTK flight with high accuracy')
             self.df.to_csv(f'{self.report_folder}\\scan.photo.georef.txt', sep='\t', columns=["photo", "lon", "lat", "height"], index=False)
         
+
+        if len(self.program_name) >= 2:
+            print('\n')
+            print(f'carefully, {len(self.program_name)} types of shooting modes were used:\n')
+            for i in sorted(self.program_name):
+                number_values = self.program_value_lst.count(i)
+                pct = str(round(int(number_values)/int(len(self.df))*100,1))
+                print(f'{i} - {number_values} photos, {pct}%')
+
+
         unique_count = self.df['flag'].nunique()
         if unique_count > 1:
             self.df.loc[self.df['flag'] == '50', 'accuracy'] = 0.05
@@ -181,37 +228,52 @@ class Parcer:
             self.std_report_show('std_hgt')
             print('_________________\n')
 
+        if self.model_value == 'XL705':
+            self.df.loc[:, 'std_lon'] = self.df['autel_accuracy_xy']
+            self.df.loc[:, 'std_lat'] = self.df['autel_accuracy_xy']
+            self.df.loc[:, 'std_hgt'] = self.df['autel_accuracy_z']
+            print(f'this is a Autel Robotics UAV\n\nprepared file {self.report_folder}\\scan.photo.georef.txt\nwith field accuracy for each photo\n')
+            self.df.to_csv(f'{self.report_folder}\\scan.photo.georef.txt', sep='\t', columns=["photo", "lon", "lat", "height", 'autel_accuracy_xy', 'autel_accuracy_z'], index=False, header=False) 
+
+            self.std_report_show('std_lon')
+            self.std_report_show('std_lat')
+            self.std_report_show('std_hgt')
+            print('_________________\n')
+
         if len(self.dewarping_values) > 1:
-            print(f'WARNING! Within the flight, dewarping mode on\\off\n' 
-                  f're-alignment with groups will be required in Metashape')
+            print(f'carefully! Within the flight, dewarping mode on\\off\n' 
+                  f're-alignment with groups dewarping mode in Metashape')
 
         if len(self.drone_values) > 1:
-            print(f'WARNING! {len(self.drone_values)} drones were used during the capture.\n' 
-                  f'Please be aware, chunks processing may be required in Metashape')
+            print(f'carefully! {len(self.drone_values)} drones were used during the capture.\n' 
+                  f'please be aware, chunks processing may be required in Metashape')
 
-        print(f'\nThe detailed information can be found in the XLSX file here:\n{self.report_folder}\\exif_report.xlsx\n')
-
-
-
-print('Based on ExifTool ver 12.60 (https://exiftool.org)')
-print("""
-  _____
- /     \\
-|  O O  |
-|   ^   |
-|  \\_/  |
- \\_____/
-""")
+        print(f'\nthe detailed information can be found in the XLSX file here:\n{self.report_folder}\\{self.file_export_name}.xlsx\n')
 
 
+print('based on ExifTool ver 12.60 (https://exiftool.org)')
+print("\033[92m" + """
+  _
+""" + "\033[0m")
 
-u_input = input(r'folder with photos: ')
-photos_folder = os.path.join(os.path.normpath(u_input))
-report_folder = os.path.normpath(u_input)
 
-task = Parcer(photos_folder, report_folder)
-task.export_raw_file(exif_columns)
-task.read_file(tab_columns)
-task.view_report()
+if __name__ == "__main__":
+
+    u_input = input(r'folder with photos: ')
+
+    if '"' in u_input:
+        u_input = u_input.replace('"', '')
+        
+    #photos_folder = os.path.join(os.path.normpath(u_input))
+    photos_folder = os.path.normpath(u_input)
+    report_folder = os.path.normpath(u_input)
+
+    task = Parser(photos_folder, report_folder)
+    task.export_raw_file(exif_columns)
+    task.read_file(tab_columns)
+    task.view_report()
+
+
+
 
 
