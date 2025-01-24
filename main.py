@@ -9,6 +9,12 @@ ExposureProgram_dict = {0: 'Not_Defined', 1: 'Manual', 2: 'Program_AE', 3: 'Aper
 MeteringMode_dict = {0: 'Unknown', 1: 'Average', 2: 'Center-weighted-average', 3: 'Spot', 4: 'Multi-spot',
                      5: 'Multi-segment', 6: 'Partial', 255: 'Other'}
 
+LightValue_dict = {0: "Unknown", 1: "Daylight", 2: "Fluorescent",
+                   3: "Tungsten (Incandescent)", 4: "Flash", 9: "Fine Weather", 10: "Cloudy", 11: "Shade", 12: "Daylight Fluorescent",
+                   13: "Day White Fluorescent", 14: "Cool White Fluorescent", 15: "White Fluorescent", 16: "Warm White Fluorescent",
+                   17: "Standard Light A", 18: "Standard Light B", 19: "Standard Light C", 20: "D55", 21: "D65", 22: "D75", 23: "D50",
+                   24: "ISO Studio Tungsten", 255: "Other"}
+
 exif_tags = [
     "-filename",
     "-GPSLongitude",
@@ -25,6 +31,7 @@ exif_tags = [
     "-ShutterType",
     "-MeteringMode",
     "-DewarpData",
+    "-LightSource",
     "-NTRIPHost",
     "-NTRIPMountPoint",
     "-DigitalZoomRatio",
@@ -55,6 +62,7 @@ tab_columns = [
     "shutter",
     "mode",
     "dewarping",
+    "light_source",
     "ntrip",
     "mount_point",
     "zoom_ratio",
@@ -75,11 +83,11 @@ class Parser:
     def __init__(self, photos_folder, report_folder):
         self.photos_folder = photos_folder
         self.report_folder = report_folder
+    
         self.file_export_name = 'exif_report'
 
         #tmp = self.report_folder.split("\\")
         #self.file_export_name = tmp[-2] +  tmp[-1][8:] + tmp[-1][5:7] # baseline1412 ddmm
-
 
     def export_raw_file(self, exif_columns):
         find = f'exiftool -r {exif_columns} -T -n {self.photos_folder} > {self.photos_folder}\\out.txt'
@@ -135,6 +143,7 @@ class Parser:
         self.shutter_values = set(df['shutter'])
         self.mode_values = set(df['mode'])
         self.dewarping_values = set(df['dewarping'])
+        self.light_source = set(df['light_source'])
         self.ntrip_values = set(df['ntrip'])
         self.mount_point_values = set(df['mount_point'])
         self.zoom_values = set(df['zoom_ratio'])
@@ -161,6 +170,12 @@ class Parser:
                 if int(q) == k:
                     self.metering_name = str(v)
 
+        self.light_source_name = []
+        for q in self.light_source:
+            for k, v in LightValue_dict.items():
+                if int(q) == k:
+                    self.light_source_name.append(str(v))
+
     def std_report_show(self, column_name):
         self.df[column_name] = pd.to_numeric(self.df[column_name], errors='coerce')
         column = self.df[column_name]
@@ -170,7 +185,7 @@ class Parser:
         print(f'\ncamera model: {self.model_values}\nimage size: {self.image_size_values}\nflight date(yyyy-mm-dd): {self.date_values}\n'
                f'photos: {len(self.df)}\n\naperture: {sorted(self.aperture_values)}\nshutter: {sorted(self.exposure_values)}\niso: {sorted(self.iso_values)}\n'
                f'program: {self.program_name}\ndrone SN: {self.drone_values}\nshutter: {self.shutter_values}\nmode: {self.metering_name}\nzoom ratio mode: { self.zoom_values}\nfocus distance: {sorted(self.focus_distance)}\n'
-               f'dewarping: {self.dewarping_values}\nrtk: {sorted(self.rtk_values)}\nRTK correction from: {sorted(self.ntrip_values)}\n'
+               f'dewarping: {self.dewarping_values}\nlight source: {sorted(self.light_source_name)}\nrtk: {sorted(self.rtk_values)}\nRTK correction from: {sorted(self.ntrip_values)}\n'
                f'Mount point: {sorted(self.mount_point_values)}\n')
          
         troubles = [i for i in self.exposure_values if i < 600]
