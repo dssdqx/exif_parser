@@ -42,7 +42,8 @@ exif_tags = [
     "-GPSXYAccuracy",
     "-GPSZAccuracy",
     "-FocusDistance",
-    "-RelativeAltitude"
+    "-RelativeAltitude",
+    "-About"
 ]
 
 
@@ -59,7 +60,7 @@ tab_columns = [
     "program",
     "iso",
     "flag",
-    "shutter",
+    "shutter_type",
     "mode",
     "dewarping",
     "light_source",
@@ -73,7 +74,8 @@ tab_columns = [
     "autel_accuracy_xy",
     "autel_accuracy_z",
     "focus_distance",
-    "height_relative"
+    "height_relative",
+    "autel_check"
 ]
 
 exif_columns = " ".join(exif_tags)
@@ -83,7 +85,6 @@ class Parser:
     def __init__(self, photos_folder, report_folder):
         self.photos_folder = photos_folder
         self.report_folder = report_folder
-    
         self.file_export_name = 'exif_report'
 
         #tmp = self.report_folder.split("\\")
@@ -111,6 +112,7 @@ class Parser:
         df.loc[df['mount_point'] == '-', 'mount_point'] = 'none'
 
         self.model_values = set(df['model'])
+        self.exif_check = set(df['autel_check'])  
 
         if df['height_relative'].ne('-').all():
             df["height_relative"] = df["height_relative"].astype(float)
@@ -124,9 +126,13 @@ class Parser:
         
         df = df.drop(columns=['height_relative'])
 
-        if self.model_value != 'XL705':
+        if list(self.exif_check)[0] != 'Autel Robotics Meta Data' and len(self.exif_check) == 1:
             df = df.drop(columns=['autel_accuracy_xy'])
             df = df.drop(columns=['autel_accuracy_z'])
+            df = df.drop(columns=['autel_check'])
+            self.autel_check = 0
+        else:
+            self.autel_check = 1
 
         df.to_excel(f'{self.report_folder}\\{self.file_export_name}.xlsx', sheet_name='Sheet1', index = False)
 
@@ -140,7 +146,7 @@ class Parser:
         self.iso_values = set(df['iso'])
         self.rtk_values = set(df['flag'])
         self.program_values = set(df['program'])
-        self.shutter_values = set(df['shutter'])
+        self.shutter_values = set(df['shutter_type'])
         self.mode_values = set(df['mode'])
         self.dewarping_values = set(df['dewarping'])
         self.light_source = set(df['light_source'])
@@ -184,7 +190,7 @@ class Parser:
     def view_report(self):
         print(f'\ncamera model: {self.model_values}\nimage size: {self.image_size_values}\nflight date(yyyy-mm-dd): {self.date_values}\n'
                f'photos: {len(self.df)}\n\naperture: {sorted(self.aperture_values)}\nshutter: {sorted(self.exposure_values)}\niso: {sorted(self.iso_values)}\n'
-               f'program: {self.program_name}\ndrone SN: {self.drone_values}\nshutter: {self.shutter_values}\nmode: {self.metering_name}\nzoom ratio mode: { self.zoom_values}\nfocus distance: {sorted(self.focus_distance)}\n'
+               f'program: {self.program_name}\ndrone SN: {self.drone_values}\nshutter type: {self.shutter_values}\nmode: {self.metering_name}\nzoom ratio mode: { self.zoom_values}\nfocus distance: {sorted(self.focus_distance)}\n'
                f'dewarping: {self.dewarping_values}\nlight source: {sorted(self.light_source_name)}\nrtk: {sorted(self.rtk_values)}\nRTK correction from: {sorted(self.ntrip_values)}\n'
                f'Mount point: {sorted(self.mount_point_values)}\n')
          
@@ -215,7 +221,7 @@ class Parser:
             print('\nthis is not a RTK flight')
         if is_rtk_flag3 == True:
             print('\nthis is a good RTK flight with high accuracy')
-            self.df.to_csv(f'{self.report_folder}\\scan.photo.georef.txt', sep='\t', columns=["photo", "lon", "lat", "height"], index=False)
+            #self.df.to_csv(f'{self.report_folder}\\scan.photo.georef.txt', sep='\t', columns=["photo", "lon", "lat", "height"], index=False) 
         
 
         if len(self.program_name) >= 2:
@@ -243,7 +249,8 @@ class Parser:
             self.std_report_show('std_hgt')
             print('_________________\n')
 
-        if self.model_value == 'XL705':
+
+        if self.autel_check == 1:
             self.df.loc[:, 'std_lon'] = self.df['autel_accuracy_xy']
             self.df.loc[:, 'std_lat'] = self.df['autel_accuracy_xy']
             self.df.loc[:, 'std_hgt'] = self.df['autel_accuracy_z']
@@ -266,10 +273,8 @@ class Parser:
         print(f'\nthe detailed information can be found in the XLSX file here:\n{self.report_folder}\\{self.file_export_name}.xlsx\n')
 
 
-print('based on ExifTool ver 12.60 (https://exiftool.org)')
-print("\033[92m" + """
-  _
-""" + "\033[0m")
+print('based on ExifTool version 12.60 (https://exiftool.org)')
+print('exif_parser version: 1.1\n')
 
 
 if __name__ == "__main__":
@@ -287,6 +292,7 @@ if __name__ == "__main__":
     task.export_raw_file(exif_columns)
     task.read_file(tab_columns)
     task.view_report()
+
 
 
 
