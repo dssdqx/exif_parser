@@ -1,7 +1,8 @@
 
 camera_specs = {
     'M3E': {'pixel_size': 0.0064,  'image_width': 5280, 'focal_length': 24}, 
-    'M3M': {'pixel_size': 0.0064, 'image_width': 5280, 'focal_length': 24}  
+    'M3M': {'pixel_size': 0.0064, 'image_width': 5280, 'focal_length': 24},
+    'M4E': {'pixel_size': 0.0064, 'image_width': 5280, 'focal_length': 24}  
 }
 
 

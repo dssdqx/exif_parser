@@ -6,6 +6,7 @@ from gsd import calculate_gsd, camera_specs
 ExposureProgram_dict = {0: 'Not_Defined', 1: 'Manual', 2: 'Program_AE', 3: 'Aperture-priority_AE', 4: 'Shutter_speed_priority_AE',
                         5: 'Creative_(Slow speed)', 6: 'Action_(High speed)', 7: 'Portrait',
                         8: 'Landscape', 9: 'Bulb'}
+                        
 MeteringMode_dict = {0: 'Unknown', 1: 'Average', 2: 'Center-weighted-average', 3: 'Spot', 4: 'Multi-spot',
                      5: 'Multi-segment', 6: 'Partial', 255: 'Other'}
 
@@ -22,7 +23,7 @@ exif_tags = [
     "-GPSAltitude",
     "-Model",
     "-ImageSize",
-    "-CreateDate",
+    "-ModifyDate",
     "-Aperture",
     "-ExposureTime",
     "-ExposureProgram",
@@ -54,7 +55,7 @@ tab_columns = [
     "height",
     "model",
     "image_size",
-    "create_date",
+    "created_date",
     "Aperture",
     "Exposure",
     "program",
@@ -85,15 +86,27 @@ class Parser:
     def __init__(self, photos_folder, report_folder):
         self.photos_folder = photos_folder
         self.report_folder = report_folder
-        self.file_export_name = 'exif_report'
+        #self.file_export_name = 'exif_report'
 
-        #tmp = self.report_folder.split("\\")
-        #self.file_export_name = tmp[-2] +  tmp[-1][8:] + tmp[-1][5:7] # baseline1412 ddmm
+        tmp = self.report_folder.split("\\")
+        self.file_export_name = tmp[-2] +  tmp[-1][8:] + tmp[-1][5:7] # baseline1412 ddmm
 
     def export_raw_file(self, exif_columns):
         find = f'exiftool -r {exif_columns} -T -n {self.photos_folder} > {self.photos_folder}\\out.txt'
         subprocess.run(find, shell=True, capture_output=True, text=True)
- 
+
+
+    def time_mission_groups(self, df):
+
+        df = df.copy()
+        df["created_date"] = pd.to_datetime(df["created_date"], format="%Y:%m:%d %H:%M:%S")
+
+        df = df.sort_values("created_date")
+
+        df["time_diff_sec"] = df["created_date"].diff().dt.total_seconds()
+        df["time_diff_sec"] = df["time_diff_sec"].fillna(0.0)
+        jumps = df[df["time_diff_sec"] > 20].copy()
+        return len(jumps) + 1
 
     def read_file(self, tab_columns):     
         w_tab = pd.read_csv((f'{self.photos_folder}\\out.txt'), sep = '\t', names = tab_columns)
@@ -101,6 +114,9 @@ class Parser:
         df = pd.DataFrame(w_tab)
         df = df.query("Exposure != '-' ")
         df = df.copy()
+        if df.empty:
+            print('no photos... return')
+            return False
 
         df['Exposure'] = df['Exposure'].apply(lambda x: int(1 / float(x)))
         df['iso'] = df['iso'].apply(lambda x: int(x))
@@ -136,11 +152,29 @@ class Parser:
 
         df.to_excel(f'{self.report_folder}\\{self.file_export_name}.xlsx', sheet_name='Sheet1', index = False)
 
-        df['create_date'] = df['create_date'].apply(lambda x: x[0:10])
+        # проверяем количество миссий и кол-во групп по фокусу
+
+        if df['focus_distance'].ne('-').all():
+            focus_dict = df.groupby("focus_distance")["photo"].apply(list).to_dict()
+            len_focus = len(focus_dict.keys())
+            len_time_groups = self.time_mission_groups(df[['photo', 'created_date']])
+            
+            if len_time_groups == len_focus:
+                print(f'\033[92mfocus distance groups and time groups counts ({len_focus}) match\n\033[0m')
+            else:
+                print(f'\033[32mThere are focus distance groups: {len_focus} and time groups: {len_time_groups}\n\033[0mUse FocusGroup first, then TimeGroup in Metashape.')
+
+
+        else:
+            len_time_groups = self.time_mission_groups(df[['photo', 'created_date']])
+            print(f'\033[92mno exif info about focus distance; count flight missions: {len_time_groups}\n\033[0m')
+
+
+        df['created_date'] = df['created_date'].apply(lambda x: x[0:10])
         df['Aperture'] = df['Aperture'].apply(lambda x: round(float(x),2)) 
 
         self.image_size_values = set(df['image_size'])
-        self.date_values = set(df['create_date'])
+        self.date_values = set(df['created_date'])
         self.exposure_values = set(df['Exposure'])
         self.aperture_values = set(df['Aperture'])
         self.iso_values = set(df['iso'])
@@ -181,6 +215,7 @@ class Parser:
             for k, v in LightValue_dict.items():
                 if int(q) == k:
                     self.light_source_name.append(str(v))
+        return True
 
     def std_report_show(self, column_name):
         self.df[column_name] = pd.to_numeric(self.df[column_name], errors='coerce')
@@ -274,7 +309,7 @@ class Parser:
 
 
 print('based on ExifTool version 12.60 (https://exiftool.org)')
-print('exif_parser version: 1.1\n')
+print('exif_parser version: 1.2\n')
 
 
 if __name__ == "__main__":
@@ -290,11 +325,6 @@ if __name__ == "__main__":
 
     task = Parser(photos_folder, report_folder)
     task.export_raw_file(exif_columns)
-    task.read_file(tab_columns)
-    task.view_report()
-
-
-
-
-
+    if task.read_file(tab_columns):
+        task.view_report()
 
